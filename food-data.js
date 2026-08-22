@@ -154,4 +154,3 @@ window.FOOD_DATA = [
  {name:'薯片',aliases:'炸薯片',cat:'零食',kcal:540,p:6,c:53,f:34,serving:50,portion:'小袋',v:.08},
  {name:'混合坚果',aliases:'每日坚果 杏仁 腰果',cat:'零食',kcal:600,p:20,c:20,f:50,serving:25,portion:'小袋1份',v:.08}
 ];
-

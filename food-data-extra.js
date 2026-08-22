@@ -177,4 +177,3 @@ window.FOOD_DATA.push(...EXTRA_FOOD_ROWS
   .map(([name, aliases, cat, kcal, p, c, f, serving, portion, v]) => ({
     name, aliases, cat, kcal, p, c, f, serving, portion, v
   })));
-
