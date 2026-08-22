@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <title>鞋眼工资记账</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">工资结算</p>
+      <h1>鞋眼工资记账</h1>
+    </div>
+    <button class="icon-button" id="settingsBtn" aria-label="打开设置">设置</button>
+  </header>
+
+  <main>
+    <section class="month-card">
+      <button class="month-arrow" id="prevMonth" aria-label="上个月">‹</button>
+      <label>
+        <span>结算月份</span>
+        <input type="month" id="monthPicker">
+      </label>
+      <button class="month-arrow" id="nextMonth" aria-label="下个月">›</button>
+    </section>
+
+    <section class="summary-grid" aria-label="本月汇总">
+      <article class="summary-card primary">
+        <span>全员本月共计</span>
+        <strong id="grandTotal">¥0.00</strong>
+      </article>
+      <article class="summary-card">
+        <span>员工人数</span>
+        <strong id="employeeCount">0 人</strong>
+      </article>
+      <article class="summary-card">
+        <span>总数量</span>
+        <strong id="quantityTotal">0</strong>
+      </article>
+    </section>
+
+    <section class="section-heading">
+      <div>
+        <h2>员工明细</h2>
+        <p>每项金额自动按“数量 × 单价”计算</p>
+      </div>
+      <button class="button primary" id="addEmployeeBtn">＋ 添加员工</button>
+    </section>
+
+    <div id="employeeList" class="employee-list"></div>
+
+    <section id="emptyState" class="empty-state" hidden>
+      <div class="empty-icon">¥</div>
+      <h2>这个月还没有记录</h2>
+      <p>添加员工后，即可录入不同鞋眼目数的数量和单价。</p>
+      <button class="button primary" id="emptyAddBtn">添加第一位员工</button>
+    </section>
+  </main>
+
+  <dialog id="employeeDialog">
+    <form method="dialog" id="employeeForm">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">员工信息</p>
+          <h2 id="employeeDialogTitle">添加员工</h2>
+        </div>
+        <button class="close-button" value="cancel" aria-label="关闭">×</button>
+      </div>
+      <label class="field">姓名<input id="employeeName" required maxlength="20" placeholder="例如：王宁"></label>
+      <label class="field">备注（可选）<input id="employeeNote" maxlength="30" placeholder="例如：6天、补工等"></label>
+      <div class="dialog-actions">
+        <button class="button ghost" value="cancel">取消</button>
+        <button class="button primary" id="saveEmployee" value="default">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settingsDialog">
+    <form method="dialog">
+      <div class="dialog-head">
+        <div><p class="eyebrow">数据管理</p><h2>设置与备份</h2></div>
+        <button class="close-button" value="cancel" aria-label="关闭">×</button>
+      </div>
+      <p class="dialog-note">数据保存在当前手机或电脑的浏览器中。建议定期导出备份。</p>
+      <div class="settings-stack">
+        <button type="button" class="button secondary" id="exportBtn">导出全部备份</button>
+        <label class="button secondary file-button">导入备份<input type="file" id="importInput" accept="application/json"></label>
+        <button type="button" class="button danger" id="clearMonthBtn">清空当前月份</button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="employeeTemplate">
+    <article class="employee-card">
+      <div class="employee-head">
+        <div><h3 class="employee-name"></h3><p class="employee-note"></p></div>
+        <div class="employee-total"><span>个人合计</span><strong></strong></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>鞋眼目数</th><th>数量</th><th>单价</th><th>金额</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="employee-foot">
+        <div class="foot-left">
+          <button class="text-button add-row">＋ 添加目数</button>
+          <label class="adjustment-label">补贴/调整 <input class="adjustment" type="number" inputmode="decimal" step="0.01" placeholder="0"></label>
+        </div>
+        <div class="foot-actions">
+          <button class="text-button edit-employee">编辑员工</button>
+          <button class="text-button danger-text delete-employee">删除</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
