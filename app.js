@@ -10,6 +10,54 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Ma
 
 let settings = read('tri-settings',{termName:'',termStart:'',termWeeks:18,periodCount:12});
 let courses = read('tri-courses',[]);
+let termEvents = read('tri-term-events',[]);
+const BUNDLED_TERM_VERSION='2026-fall-gs2403-v1';
+const BUNDLED_TERM_SETTINGS={termName:'2026—2027学年第1学期 · 给水2403',termStart:'2026-08-31',termWeeks:20,periodCount:10};
+const BUNDLED_COURSES=[
+ {id:'fall26-c01',name:'水处理微生物',day:1,type:'core',start:1,end:2,weeks:'7-14',place:'J01东426',teacher:'张朋菲'},
+ {id:'fall26-c02',name:'习近平新时代中国特色社会主义思想概论',day:1,type:'normal',start:3,end:4,weeks:'3-15',place:'J01西405',teacher:'张艳平'},
+ {id:'fall26-c03',name:'工程伦理',day:1,type:'normal',start:7,end:8,weeks:'3-6',place:'J01西305',teacher:'张胜'},
+ {id:'fall26-c04',name:'水分析化学实验',day:1,type:'core',start:7,end:8,weeks:'7-10',place:'J01东524',teacher:'张彬'},
+ {id:'fall26-c05',name:'水分析化学实验',day:1,type:'core',start:7,end:8,weeks:'11-14',place:'J01东524',teacher:'曹泽壮'},
+ {id:'fall26-c06',name:'泵及泵站',day:1,type:'core',start:9,end:10,weeks:'3-9',place:'J01东116',teacher:'孙广垠'},
+ {id:'fall26-c07',name:'水工程法规',day:2,type:'core',start:1,end:2,weeks:'11-14',place:'J01东426',teacher:'陈春燕'},
+ {id:'fall26-c08',name:'水工程项目策划与管理',day:2,type:'core',start:3,end:4,weeks:'11-14',place:'J01东426',teacher:'杨晶'},
+ {id:'fall26-c09',name:'水文学与水文地质',day:3,type:'core',start:1,end:2,weeks:'11-14',place:'J01东425',teacher:'杜富慧'},
+ {id:'fall26-c10',name:'水分析化学实验',day:3,type:'core',start:3,end:4,weeks:'7-10',place:'J01东425',teacher:'张彬'},
+ {id:'fall26-c11',name:'水分析化学实验',day:3,type:'core',start:3,end:4,weeks:'11-14',place:'J01东425',teacher:'曹泽壮'},
+ {id:'fall26-c12',name:'习近平新时代中国特色社会主义思想概论',day:3,type:'normal',start:5,end:6,weeks:'3-13',place:'J01西312',teacher:'张艳平'},
+ {id:'fall26-c13',name:'给水排水管网系统',day:3,type:'core',start:7,end:8,weeks:'9-14',place:'J01东321',teacher:'张炜'},
+ {id:'fall26-c14',name:'泵及泵站',day:3,type:'core',start:9,end:10,weeks:'3-10',place:'J01东116',teacher:'孙广垠'},
+ {id:'fall26-c15',name:'水处理微生物',day:4,type:'core',start:1,end:2,weeks:'7-14',place:'J01东116',teacher:'张朋菲'},
+ {id:'fall26-c16',name:'水资源利用与保护',day:4,type:'core',start:5,end:6,weeks:'3-10',place:'J01西405',teacher:'孟鑫'},
+ {id:'fall26-c17',name:'给水排水管网系统',day:4,type:'core',start:7,end:8,weeks:'3-8',place:'J01西111',teacher:'张娟'},
+ {id:'fall26-c18',name:'给水排水管网系统',day:4,type:'core',start:7,end:8,weeks:'9-14',place:'J01西111',teacher:'张炜'},
+ {id:'fall26-c19',name:'水工程法规',day:5,type:'core',start:1,end:2,weeks:'11-14',place:'J01西403',teacher:'陈春燕'},
+ {id:'fall26-c20',name:'水资源利用与保护',day:5,type:'core',start:3,end:4,weeks:'3-10',place:'J01西111',teacher:'孟鑫'},
+ {id:'fall26-c21',name:'形势与政策',day:5,type:'normal',start:5,end:6,weeks:'7-10',place:'J01西305',teacher:'李晓敏、范晓伟、宋琦、张丹丹'},
+ {id:'fall26-c22',name:'水工程项目策划与管理',day:5,type:'core',start:5,end:6,weeks:'11-14',place:'J01东524',teacher:'杨晶'},
+ {id:'fall26-c23',name:'给水排水管网系统',day:5,type:'core',start:7,end:8,weeks:'3-8',place:'J02东110',teacher:'张娟'},
+ {id:'fall26-c24',name:'水文学与水文地质',day:5,type:'core',start:7,end:8,weeks:'11-14',place:'J01东524',teacher:'杜富慧'}
+];
+const BUNDLED_TERM_EVENTS=[
+ {id:'fall26-e01',name:'认识实习',weeks:'1-2',teacher:'唐锋兵',duration:'2周'},
+ {id:'fall26-e02',name:'思想政治理论课实践教学2',weeks:'3-10',teacher:'马微微',duration:'8周'},
+ {id:'fall26-e03',name:'泵站设计',weeks:'16',teacher:'孙广垠',duration:'1周'},
+ {id:'fall26-e04',name:'给水管网设计',weeks:'17-18',teacher:'张娟',duration:'2周'},
+ {id:'fall26-e05',name:'排水管网设计',weeks:'19',teacher:'张炜',duration:'1周'}
+];
+function courseSignature(course){return[course.name,+course.day,+course.start,+course.end,course.weeks,course.place||''].join('|')}
+function applyBundledTerm(){
+ if(localStorage.getItem('tri-bundled-term-version')===BUNDLED_TERM_VERSION)return;
+ settings={...settings,...BUNDLED_TERM_SETTINGS};
+ const current=Array.isArray(courses)?courses:[],bySignature=new Map(current.map((course,index)=>[courseSignature(course),index]));
+ BUNDLED_COURSES.forEach(preset=>{const index=bySignature.get(courseSignature(preset));if(index===undefined){bySignature.set(courseSignature(preset),current.length);current.push({...preset,source:BUNDLED_TERM_VERSION})}else current[index]={...current[index],teacher:preset.teacher,source:current[index].source||BUNDLED_TERM_VERSION}});
+ courses=current;
+ const eventIds=new Set(BUNDLED_TERM_EVENTS.map(event=>event.id));
+ termEvents=(Array.isArray(termEvents)?termEvents:[]).filter(event=>!eventIds.has(event.id)).concat(BUNDLED_TERM_EVENTS.map(event=>({...event,source:BUNDLED_TERM_VERSION})));
+ write('tri-settings',settings);write('tri-courses',courses);write('tri-term-events',termEvents);localStorage.setItem('tri-bundled-term-version',BUNDLED_TERM_VERSION);
+}
+applyBundledTerm();
 let checks = read('tri-checks',{});
 let viewWeekNumber = getCurrentWeek() || 1;
 let pdfDrafts = [];
@@ -353,16 +401,18 @@ function renderSchedule(){
  const periods=+settings.periodCount||12, cols=8; let html=`<div class="tt-head" style="grid-column:1;grid-row:1">节次</div>`;
  DAY_ORDER.forEach((d,i)=>html+=`<div class="tt-head" style="grid-column:${i+2};grid-row:1">${DAYS[d]}</div>`);
  for(let p=1;p<=periods;p++){html+=`<div class="tt-time" style="grid-column:1;grid-row:${p+1}">第 ${p} 节</div>`;DAY_ORDER.forEach((d,i)=>html+=`<div class="tt-cell" style="grid-column:${i+2};grid-row:${p+1}"></div>`)}
- courses.filter(c=>isActive(c,viewWeekNumber)).forEach(c=>{const col=DAY_ORDER.indexOf(+c.day)+2,span=Math.max(1,+c.end-+c.start+1);html+=`<div class="course-block ${c.type}" data-id="${c.id}" style="grid-column:${col};grid-row:${+c.start+1};height:${span*52-6}px;z-index:3"><b>${escapeHtml(c.name)}</b><span>${c.start}-${c.end}节 · ${escapeHtml(c.place||'')}</span></div>`});
+ courses.filter(c=>isActive(c,viewWeekNumber)).forEach(c=>{const col=DAY_ORDER.indexOf(+c.day)+2,span=Math.max(1,+c.end-+c.start+1),teacher=c.teacher?` · ${escapeHtml(c.teacher)}`:'';html+=`<div class="course-block ${c.type}" data-id="${c.id}" style="grid-column:${col};grid-row:${+c.start+1};height:${span*52-6}px;z-index:3"><b>${escapeHtml(c.name)}</b><span>${c.start}-${c.end}节 · ${escapeHtml(c.place||'')}${teacher}</span></div>`});
  const tt=$('timetable');tt.style.gridTemplateColumns=`70px repeat(7,minmax(112px,1fr))`;tt.style.gridTemplateRows=`42px repeat(${periods},52px)`;tt.innerHTML=html;document.querySelectorAll('.course-block').forEach(el=>el.onclick=()=>openCourse(el.dataset.id));
+ const activeEvents=termEvents.filter(event=>isActive(event,viewWeekNumber));$('termEventMeta').textContent=`本学期 ${termEvents.length} 项 · 本周 ${activeEvents.length} 项`;
+ $('termEvents').innerHTML=termEvents.length?termEvents.map(event=>`<article class="term-event-card ${isActive(event,viewWeekNumber)?'active':''}"><span>第 ${escapeHtml(event.weeks)} 周</span><b>${escapeHtml(event.name)}</b><small>${escapeHtml(event.teacher||'教师未填')} · ${escapeHtml(event.duration||'整周安排')}</small></article>`).join(''):`<div class="empty">暂无整周实践安排。</div>`;
 }
 $('prevWeek').onclick=()=>{viewWeekNumber--;renderSchedule()};$('nextWeek').onclick=()=>{viewWeekNumber++;renderSchedule()};
 function openCourse(id=''){
  const c=courses.find(x=>x.id===id);$('courseForm').reset();$('courseId').value=c?.id||'';$('courseDialogTitle').textContent=c?'编辑课程':'添加课程';$('deleteCourse').classList.toggle('hidden',!c);
- $('courseName').value=c?.name||'';$('courseDay').value=c?.day??1;$('courseType').value=c?.type||'normal';$('startPeriod').value=c?.start||1;$('endPeriod').value=c?.end||2;$('courseWeeks').value=c?.weeks||`1-${settings.termWeeks||18}`;$('coursePlace').value=c?.place||'';$('courseDialog').showModal();
+ $('courseName').value=c?.name||'';$('courseDay').value=c?.day??1;$('courseType').value=c?.type||'normal';$('startPeriod').value=c?.start||1;$('endPeriod').value=c?.end||2;$('courseWeeks').value=c?.weeks||`1-${settings.termWeeks||18}`;$('coursePlace').value=c?.place||'';$('courseTeacher').value=c?.teacher||'';$('courseDialog').showModal();
 }
 $('addCourseBtn').onclick=()=>openCourse();
-$('courseForm').onsubmit=e=>{e.preventDefault();const start=+$('startPeriod').value,end=+$('endPeriod').value,weeks=$('courseWeeks').value.trim();if(end<start||!parseWeeks(weeks).length){toast('请检查节次或周次格式');return}const obj={id:$('courseId').value||uid(),name:$('courseName').value.trim(),day:+$('courseDay').value,type:$('courseType').value,start,end,weeks,place:$('coursePlace').value.trim()};courses=courses.filter(c=>c.id!==obj.id);courses.push(obj);write('tri-courses',courses);$('courseDialog').close();renderAll();toast('课程已保存')};
+$('courseForm').onsubmit=e=>{e.preventDefault();const start=+$('startPeriod').value,end=+$('endPeriod').value,weeks=$('courseWeeks').value.trim();if(end<start||!parseWeeks(weeks).length){toast('请检查节次或周次格式');return}const obj={id:$('courseId').value||uid(),name:$('courseName').value.trim(),day:+$('courseDay').value,type:$('courseType').value,start,end,weeks,place:$('coursePlace').value.trim(),teacher:$('courseTeacher').value.trim()};courses=courses.filter(c=>c.id!==obj.id);courses.push(obj);write('tri-courses',courses);$('courseDialog').close();renderAll();toast('课程已保存')};
 $('deleteCourse').onclick=()=>{const id=$('courseId').value;if(confirm('确定删除这门课程吗？')){courses=courses.filter(c=>c.id!==id);write('tri-courses',courses);$('courseDialog').close();renderAll();toast('课程已删除')}};
 $('termBtn').onclick=()=>{$('termName').value=settings.termName||'';$('termStart').value=settings.termStart||'';$('termWeeks').value=settings.termWeeks||18;$('periodCount').value=settings.periodCount||12;$('termDialog').showModal()};
 $('termForm').onsubmit=e=>{e.preventDefault();settings={termName:$('termName').value.trim(),termStart:$('termStart').value,termWeeks:+$('termWeeks').value,periodCount:+$('periodCount').value};write('tri-settings',settings);viewWeekNumber=getCurrentWeek()||1;$('termDialog').close();renderAll();toast('学期设置已更新')};
