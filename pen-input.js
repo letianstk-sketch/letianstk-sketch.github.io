@@ -22,7 +22,7 @@
       }
       if(state.loading)return;
       owner=e.pointerId;ownerType=e.pointerType;
-      state.active={tool:state.tool,color:state.color,width:state.width,points:[point(e)]};
+      state.active={tool:state.tool,color:state.color,width:state.width,points:[point(e,canvas.getBoundingClientRect())]};
       state.strokes.push(state.active);
       try{canvas.setPointerCapture(e.pointerId)}catch{}
       redraw();
@@ -32,7 +32,8 @@
       if(e.pointerId!==owner||!state.active)return;
       block(e);
       const samples=e.getCoalescedEvents?.()||[];
-      (samples.length?samples:[e]).forEach(sample=>state.active.points.push(point(sample)));
+      const rect=canvas.getBoundingClientRect();
+      (samples.length?samples:[e]).forEach(sample=>state.active.points.push(point(sample,rect)));
       redraw();
     });
     ['pointerup','pointercancel','lostpointercapture'].forEach(type=>canvas.addEventListener(type,e=>finish(e)));
