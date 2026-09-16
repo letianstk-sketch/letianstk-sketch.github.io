@@ -13,7 +13,7 @@
   function allocate(tasks,windows,blocked,breakMinutes=5){
     const free=subtract(windows,blocked),sessions=[],pending=[];
     // Place long concentration tasks first; smaller tasks fill the gaps.
-    const ordered=tasks.map((task,index)=>({...task,index})).sort((a,b)=>(b.morning?1:0)-(a.morning?1:0)||(b.focus?1:0)-(a.focus?1:0)||b.minutes-a.minutes||a.index-b.index);
+    const ordered=tasks.map((task,index)=>({...task,index})).sort((a,b)=>(a.priority||0)-(b.priority||0)||(b.morning?1:0)-(a.morning?1:0)||(b.focus?1:0)-(a.focus?1:0)||b.minutes-a.minutes||a.index-b.index);
     for(const task of ordered){
       let remaining=task.minutes,part=0;
       while(remaining>0){
