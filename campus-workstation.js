@@ -46,7 +46,7 @@ function campusRunWeek(date){
  const monday=new Date(date);monday.setDate(monday.getDate()-(monday.getDay()+6)%7);monday.setHours(0,0,0,0);
  const cacheKey=dateKey(monday)+'-'+(window.campusPlanningRevision||0)+'-'+dateKey();if(campusRunCache.has(cacheKey))return campusRunCache.get(cacheKey);
  const rows=[];for(let i=0;i<7;i++){const d=new Date(monday);d.setDate(d.getDate()+i);const key=dateKey(d);if(key<CampusPlan.effective||key>=fitnessSettings.start)continue;const old=dailyLedger['activity-'+key],recorded=key<dateKey()&&key<=(localStorage.getItem('tri-daily-ledger-through')||'');if(recorded&&!old)continue;
-  const ranges=campusFreeHalfDays(d),constraints=dayConstraints(d),schoolMinutes=constraints.busy.reduce((n,x)=>n+x.end-x.start,0),studyMinutes=studyTasksFor(d).reduce((n,t)=>n+t.minutes,0),locked=!!(cardioLogs[key]?.complete||(recorded&&old?.activity==='run'));
+  const ranges=campusFreeHalfDays(d),constraints=dayConstraints(d),schoolMinutes=constraints.busy.reduce((n,x)=>n+x.end-x.start,0),studyMinutes=[...studyTasksFor(d),...courseSupplementsFor(d)].reduce((n,t)=>n+t.minutes,0),locked=!!(cardioLogs[key]?.complete||(recorded&&old?.activity==='run'));
   if(ranges.length||locked)rows.push({date:key,day:i,ranges,locked,score:ranges.length*100+(840-schoolMinutes-studyMinutes)/10});
  }
  let best=[],score=-Infinity;const target=Math.min(rows.length,Math.max(1,dayProfile.runsPerWeek||3));
@@ -62,7 +62,7 @@ function campusActivityFor(date){
 function personalEventsFor(date){const key=dateKey(date);return campusEvents.filter(e=>e.startDate<=key&&e.endDate>=key&&(!e.days||e.days.includes(date.getDay()))).map(e=>({start:StudyPlanner.clock(e.start),end:StudyPlanner.clock(e.end),label:e.title,id:e.id}))}
 function campusTaskId(subject,index,part,date){return subject==='course'?'course-'+dateKey(date):subject+'-step-'+index+'-'+part}
 function newDailyTasks(date){
- const key=dateKey(date),tasks=studyTasksFor(date).map(task=>({...task,originDate:key})),activity=campusActivityFor(date);
+ const key=dateKey(date),tasks=[...studyTasksFor(date).map(task=>({...task,originDate:key})),...courseSupplementsFor(date)],activity=campusActivityFor(date);
  if(activity)tasks.push({id:'activity-'+key,subject:'fitness',title:activity.title,detail:activity.kind==='run'?'完成 3 公里；安排时间包含热身、跑步与整理。':'沿用原有动作模板与部位循环。',minutes:activity.minutes,originDate:key,activity:activity.kind});
  return tasks;
 }
@@ -113,6 +113,7 @@ function saveDailyTaskProgress(task,minutes){
  write('tri-daily-ledger-v2',dailyLedger);write('tri-daily-progress-v2',dailyProgress);renderToday();
 }
 function openDailyTask(task){
+ if(task.teacher&&['math','politics'].includes(task.subject))courseLineFilters[task.subject]=task.teacher;
  let date=new Date(task.originDate+'T00:00:00');
  if(task.sourceIndex!==undefined&&SUBJECT_LABELS[task.subject]){for(let i=task.sourceIndex;i<task.sourceIndex+366;i++){const candidate=dateFromIndex(i),state=subjectPlanState(task.subject,candidate);if(state.index===task.sourceIndex&&!state.postponed){date=candidate;break}}}
  setPlanDate(date);navigate(task.subject==='course'?'schedule':task.subject);
@@ -251,4 +252,94 @@ function initWorkstation(){
  document.querySelectorAll('[data-focus-minutes]').forEach(b=>b.onclick=()=>{workstationMinutes=+b.dataset.focusMinutes;document.querySelectorAll('[data-focus-minutes]').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b))});renderWorkstation(campusScheduleFor(selectedPlanDate))});
  $('workstationMode').onchange=e=>{workstationMode=e.target.value;renderWorkstation(campusScheduleFor(selectedPlanDate))};
  $('workstationReturn').onclick=()=>{const focus=read('tri-workstation-focus',null);if(focus)setPlanDate(focus.homeDate);navigate('today')};
+}
+
+;
+// course-lines.js
+/* Teacher navigation stores metadata only; no account credentials or video bytes. */
+window.CourseLines={
+ rootFolder:'【27公共课】（更ing）',
+ teachers:[{id:'wuzhongxiang',name:'武忠祥',subject:'math',folder:'【有道-武忠祥-姜晓千-刘金峰】'},{id:'zhangyu',name:'张宇',subject:'math',folder:'张宇高昆轮领衔丨27考研数学零基础全程班'},{id:'daya',name:'大牙老师',subject:'politics',folder:'【大牙】'}],
+ stages:{unknown:'阶段待确认',foundation:'基础',reinforce:'强化',papers:'真题',sprint:'冲刺',notes:'讲义',complete:'全程'},
+ teacher(subject,item){
+  const allowed=this.teachers.filter(t=>t.subject===subject);
+  if(item.teacher==='unknown'||allowed.some(t=>t.id===item.teacher))return item.teacher;
+  const text=[item.name,item.path].filter(Boolean).join(' '),matches=allowed.filter(t=>text.includes(t.id==='daya'?'大牙':t.name));
+  return matches.length===1?matches[0].id:'unknown';
+ },
+ stage(item){
+  if(Object.hasOwn(this.stages,item.stage))return item.stage;
+  const text=[item.name,item.path].filter(Boolean).join(' ');
+  const found=[['全程','complete'],['冲刺','sprint'],['真题','papers'],['强化','reinforce'],['基础','foundation']].find(([label])=>text.includes(label));
+  return found?.[1]||'unknown';
+ },
+ label(subject,item){const teacher=this.teachers.find(t=>t.id===this.teacher(subject,item));return [teacher?.name||'老师待分类',item.year||'',this.stages[this.stage(item)]].filter(Boolean).join(' · ')}
+};
+const courseLineFilters={math:'all',politics:'all'},courseResourceEpoch={math:0,politics:0};
+let courseSupplementCache={raw:null,byDate:new Map()};
+function mathPrimaryLine(){const saved=localStorage.getItem('tri-math-primary-line');return ['wuzhongxiang','zhangyu'].includes(saved)?saved:'wuzhongxiang'}
+function mathDualLabel(){const primary=mathPrimaryLine(),name=id=>CourseLines.teachers.find(t=>t.id===id).name;return name(primary)+'主线 · '+name(primary==='wuzhongxiang'?'zhangyu':'wuzhongxiang')+'按章补充'}
+function courseItemsForPlan(subject){const items=courseCatalog[subject]||[];return subject==='math'&&mathRoute==='dual'?items.filter(item=>['unknown',mathPrimaryLine()].includes(CourseLines.teacher(subject,item))):items}
+function setMathPrimaryLine(id){
+ if(!['wuzhongxiang','zhangyu'].includes(id))return;
+ if(mathRoute==='dual'&&mathPrimaryLine()===id)return;
+ const history=read('tri-course-line-history',[]);history.push({at:new Date().toISOString(),route:mathRoute,primary:mathPrimaryLine(),schedule:smartSchedules.math});write('tri-course-line-history',history);
+ localStorage.setItem('tri-math-primary-line',id);mathRoute='dual';localStorage.setItem('tri-math-route',mathRoute);
+ window.campusPlanningRevision=(window.campusPlanningRevision||0)+1;rebuildSmartSchedule('math');renderMath();render365();renderToday();toast(mathDualLabel()+'；已记录的任务与进度保留');
+}
+function courseSupplementsFor(date){
+ const raw=localStorage.getItem('tri-course-supplements');
+ if(raw!==courseSupplementCache.raw){const byDate=new Map();for(const task of Object.values(read('tri-course-supplements',{}))){const items=byDate.get(task.originDate)||[];items.push(task);byDate.set(task.originDate,items)}courseSupplementCache={raw,byDate}}
+ return courseSupplementCache.byDate.get(dateKey(date))||[];
+}
+function addCourseSupplement(subject,item,kind,minutes){
+ const key=dateKey(selectedPlanDate),value=Number(minutes),teacher=CourseLines.teacher(subject,item);
+ if(key<dateKey())return toast('请选择今天或未来日期添加补充任务');
+ if(!Number.isFinite(value)||value<1||value>600)return toast('请填写 1–600 分钟的补充学习时间');
+ const id='course-supplement-'+key+'-'+item.id,requests=read('tri-course-supplements',{});
+ if(requests[id])return toast('本日已添加这项补充任务');
+ const task={id,subject,teacher,title:'本章补充 · '+item.name,detail:CourseLines.label(subject,item),minutes:value,originDate:key,...(kind==='local'?{courseId:item.id}:{resourceId:item.id})};
+ requests[id]=task;write('tri-course-supplements',requests);
+ if(key===dateKey()){dailyLedger[id]=task;write('tri-daily-ledger-v2',dailyLedger)}
+ renderSubjectTime(subject);renderToday();toast('补充任务已加入 '+key+'，空档不足的部分保留待补');
+}
+function initCourseLines(){
+ if(!localStorage.getItem('tri-course-lines-version')){
+  write('tri-math-route-before-dual',{value:localStorage.getItem('tri-math-route'),schedule:smartSchedules.math,savedAt:new Date().toISOString()});
+  mathRoute='dual';localStorage.setItem('tri-math-route',mathRoute);localStorage.setItem('tri-course-lines-version','20260916b');
+ }
+ for(const subject of ['math','politics']){
+  const picker=$(subject+'ResourceTeacher');
+  picker.innerHTML=CourseLines.teachers.filter(t=>t.subject===subject).map(t=>`<option value="${t.id}">${t.name}</option>`).join('')+'<option value="unknown">暂不分类</option>';
+  $(subject+'ResourceStage').innerHTML=Object.entries(CourseLines.stages).map(([id,name])=>`<option value="${id}">${name}</option>`).join('');
+  $(subject+'ResourceYear').value='2027';
+ }
+}
+function renderCourseLines(subject){
+ const box=$(subject+'CourseLines');if(!box)return;
+ const teachers=CourseLines.teachers.filter(t=>t.subject===subject),catalog=courseCatalog[subject]||[],links=resources.filter(r=>r.subject===subject),filter=courseLineFilters[subject];
+ box.innerHTML=`<div class="section-head"><div><div class="eyebrow">COURSE LIBRARY</div><h3>${subject==='math'?'武忠祥 × 张宇 · 数学双线':'大牙老师 · 政治课程'}</h3></div><button class="soft" data-course-filter="all" aria-pressed="${filter==='all'}">全部课程</button></div><p class="muted">${subject==='math'?escapeHtml(mathRoute==='dual'?mathDualLabel():'当前使用单线路线；可在下方切换为双线')+'。补充内容由你按章节加入，原有练习和复习保留。':'2027 考研政治 · 大牙课程入口与讲义。'} 群目录：${escapeHtml(CourseLines.rootFolder)}</p><div class="teacher-line-grid">`+teachers.map(t=>{
+  const files=catalog.filter(item=>CourseLines.teacher(subject,item)===t.id),attached=links.filter(item=>CourseLines.teacher(subject,item)===t.id),done=files.filter(item=>courseProgress[item.id]).length;
+  const primary=subject==='math'&&mathRoute==='dual'&&mathPrimaryLine()===t.id;
+  return `<article class="teacher-line ${filter===t.id?'selected':''}"><h4>${t.name}${primary?' · 主线':''}</h4><p class="course-folder-name">${escapeHtml(t.folder)}</p><p>${attached.length} 个链接 · ${files.length} 份本地课程 / 讲义</p><small>${files.length?`已完成 ${done} / ${files.length} 项`:'已确认目录名称 · 待添加访问链接'}</small><div class="inline-actions"><button class="soft" data-course-filter="${t.id}" aria-pressed="${filter===t.id}">查看${t.name}课程</button><button class="soft" data-course-attach="${t.id}">添加入口</button>${subject==='math'?`<button class="soft" data-course-primary="${t.id}" ${primary?'disabled':''}>${primary?'当前主线':'设为主线'}</button>`:''}</div></article>`;
+ }).join('')+`</div><div class="course-line-footer"><button class="soft" data-course-filter="unknown" aria-pressed="${filter==='unknown'}">待分类 ${[...catalog,...links].filter(item=>CourseLines.teacher(subject,item)==='unknown').length} 项</button><span>目前使用网盘页面播放；站内视频尚未接通。</span></div><div id="${subject}TeacherFiles"></div>`;
+ box.querySelectorAll('[data-course-filter]').forEach(button=>button.onclick=()=>{courseLineFilters[subject]=button.dataset.courseFilter;renderResources(subject);renderStoredFiles(subject)});
+ box.querySelectorAll('[data-course-attach]').forEach(button=>button.onclick=()=>{$(subject+'ResourceTeacher').value=button.dataset.courseAttach;$(subject+'ResourceUrl').scrollIntoView({block:'center'});$(subject+'ResourceUrl').focus()});
+ box.querySelectorAll('[data-course-primary]').forEach(button=>button.onclick=()=>setMathPrimaryLine(button.dataset.coursePrimary));
+ // Open a teacher's local catalog on demand, avoiding a large hidden list at startup.
+ if(filter!=='all'){
+  const items=catalog.filter(item=>CourseLines.teacher(subject,item)===filter),list=$(subject+'TeacherFiles');
+  if(items.length){list.innerHTML='<h4>已导入的本地课程与讲义</h4>'+items.map(item=>`<div class="teacher-file"><div><b>${escapeHtml(item.name)}</b><small>${escapeHtml(CourseLines.label(subject,item))} · ${courseProgress[item.id]?'已完成':'未完成'}</small></div><div class="inline-actions"><button class="soft" data-teacher-file="${escapeAttr(item.id)}">打开文件</button>${subject==='math'&&filter!==mathPrimaryLine()?`<button class="soft" data-file-supplement="${escapeAttr(item.id)}">加入 ${dateKey(selectedPlanDate)} 补充</button>`:''}</div></div>`).join('');list.querySelectorAll('[data-teacher-file]').forEach(button=>button.onclick=()=>openCourseFile(subject,items.find(item=>item.id===button.dataset.teacherFile)));list.querySelectorAll('[data-file-supplement]').forEach(button=>button.onclick=()=>{const item=items.find(item=>item.id===button.dataset.fileSupplement);addCourseSupplement(subject,item,'local',item.minutes||45)})}
+ }
+}
+function addCourseResource(subject){
+ const name=$(subject+'ResourceName').value.trim(),link=parseResourceLink($(subject+'ResourceUrl').value),teacher=$(subject+'ResourceTeacher').value,stage=$(subject+'ResourceStage').value,year=$(subject+'ResourceYear').value.trim();
+ if(!name||!link)return toast('请填写名称和有效的 http / https 分享链接');
+ if(year&&!/^20\d{2}$/.test(year))return toast('课程年份请填四位数字，也可以留空');
+ if(!CourseLines.teachers.some(t=>t.subject===subject&&t.id===teacher)&&teacher!=='unknown')return toast('请选择本学科的老师');
+ if(!Object.hasOwn(CourseLines.stages,stage))return toast('请选择课程阶段');
+ if(resources.some(r=>r.subject===subject&&r.url===link.url&&CourseLines.teacher(subject,r)===teacher))return toast('这位老师的相同链接已保存');
+ resources.push({id:uid(),subject,name,url:link.url,teacher,stage,year});write('tri-resources',resources);
+ $(subject+'ResourceName').value='';$(subject+'ResourceUrl').value='';courseLineFilters[subject]=teacher;
+ renderResources(subject);renderStoredFiles(subject);toast('课程入口已保存，可从老师分类中打开');
 }
