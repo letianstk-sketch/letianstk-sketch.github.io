@@ -92,7 +92,7 @@ function tasksForDashboard(date){
  const key=dateKey(date),generated=newDailyTasks(date),archived=Object.values(dailyLedger).filter(t=>t.originDate===key&&!isRetiredCourseTask(t)),base=key<dateKey()&&archived.length?archived:generated;
  const fresh=base.map(t=>{const old=dailyLedger[t.id];return old&&!isRetiredCourseTask(old)?{...t,...old,minutes:Math.max(t.minutes,old.minutes)}:t}),ids=new Set(fresh.map(t=>t.id));
  const backlog=Object.values(dailyLedger).filter(t=>!isRetiredCourseTask(t)&&t.originDate<key&&!ids.has(t.id)&&!t.activity&&dailyTaskMinutes(t)<t.minutes).sort((a,b)=>a.originDate.localeCompare(b.originDate));
- return {fresh,backlog};
+ return key>=MathPractice.start?{fresh:fresh.filter(t=>t.subject!=='math'),backlog:backlog.filter(t=>t.subject!=='math')}:{fresh,backlog};
 }
 function campusScheduleFor(date){
  const constraints=dayConstraints(date),activity=campusActivityFor(date),windows=studyWindows(date),reservation=CampusPlan.reserve({windows,school:constraints.busy,profile:dayProfile,activity,events:personalEventsFor(date)}),groups=tasksForDashboard(date);
@@ -345,7 +345,7 @@ window.TrialHome={
  },
  bundle(){
   const records=Object.entries(this.records()).filter(([date])=>date>=this.start&&date<=this.end).sort(([a],[b])=>a.localeCompare(b)).map(([date,record])=>({date,...record}));
-  return{kind:'study-trial-notes',version:1,period:{start:this.start,end:this.end},exportedAt:new Date().toISOString(),records,missingMeans:'未填写，不能据此判断是否学习'};
+  return{kind:'study-trial-notes',version:2,math:MathPractice.bundle(),period:{start:this.start,end:this.end},exportedAt:new Date().toISOString(),records,missingMeans:'未填写，不能据此判断是否学习'};
  },
  async export(){
   this.flush();
@@ -367,3 +367,124 @@ window.TrialHome={
   document.addEventListener('visibilitychange',()=>{if(document.hidden)this.flush()});
  }
 };
+
+;
+// math-practice.js
+// Independent practice cycle: never migrate, reset or rewrite historical notes/ink.
+window.MathPractice = {
+ key:'tri-math-practice-v1',start:'2026-09-19',state:null,bank:null,pending:null,timer:null,dirty:false,viewLesson:null,
+ ratings:{solo:'独立完成',hint:'提示后完成',solution:'看解析才理解',stuck:'仍然卡住'},
+ title(){const id=this.records().lessonId;return this.bank?.lessons.find(l=>l.id===id)?.title||({'functions-domain':'映射与函数：概念、定义域','functions-composition':'复合函数与定义域'})[id]||'映射与函数：概念、定义域'},
+ records(){
+  if(!this.state){
+   const saved=read(this.key,null);
+   this.state=saved?.schema===1&&saved.start===this.start&&saved.records&&saved.cursors?saved:{schema:1,start:this.start,lessonId:'functions-domain',cursors:{},records:{},advances:[]};
+  }
+  return this.state;
+ },
+ async load(){
+  if(this.bank)return this.bank;
+  if(!this.pending)this.pending=(async()=>{
+   const response=await fetch('math-foundations-v1.json?v=20260919c',{cache:'force-cache',signal:AbortSignal.timeout(20000)});
+   if(!response.ok)throw Error('download');
+   const data=await response.json(),ids=new Set();
+   if(data.schema!==1||!Array.isArray(data.lessons)||!data.lessons.length)throw Error('format');
+   for(const lesson of data.lessons){
+    if(!lesson.id||!lesson.title||!Array.isArray(lesson.cards)||!Array.isArray(lesson.examples)||lesson.questions?.length!==15)throw Error('lesson');
+    for(const q of lesson.questions){if(ids.has(q.id)||!q.prompt||!q.answer||!q.hint||!Array.isArray(q.steps))throw Error('question');ids.add(q.id)}
+   }
+   this.bank=data;return data;
+  })().finally(()=>{this.pending=null});
+  return this.pending;
+ },
+ async open(){
+  const box=$('mathPractice');
+  if(!this.bank)box.innerHTML='<p role="status">正在加载第一批数学习题…</p>';
+  try{await this.load();if($('math').classList.contains('active'))this.render()}
+  catch{if($('math').classList.contains('active')){box.innerHTML='<p role="status">习题暂未加载成功，你的记录仍保留。</p><button type="button" class="soft" id="mathRetry">重新加载习题</button>';$('mathRetry').onclick=()=>this.open()}}
+ },
+ lesson(){return this.bank.lessons.find(l=>l.id===(this.viewLesson||this.records().lessonId))||this.bank.lessons[0]},
+ question(){const lesson=this.lesson();return lesson.questions.find(q=>q.id===this.records().cursors[lesson.id])||lesson.questions[0]},
+ entry(id=this.question().id){return this.records().records[id]||{note:'',events:[]}},
+ last(id){return this.entry(id).events?.at(-1)},
+ due(today=dateKey()){
+  if(!this.bank)return[];
+  return this.bank.lessons.flatMap(l=>l.questions.map(q=>({lesson:l.id,id:q.id,last:this.last(q.id)}))).filter(q=>q.last?.due<=today&&q.last.date>=this.start).sort((a,b)=>a.last.due.localeCompare(b.last.due));
+ },
+ changed(){this.dirty=true;if(this.timer!==null)clearTimeout(this.timer);this.timer=setTimeout(()=>this.flush(),400);this.status('正在保存…')},
+ status(text){if($('mathSaveState'))$('mathSaveState').textContent=text},
+ flush(){
+  if(this.timer!==null){clearTimeout(this.timer);this.timer=null}
+  if(!this.dirty)return true;
+  try{localStorage.setItem(this.key,JSON.stringify(this.records()));this.dirty=false;this.status('已保存到这台设备');return true}
+  catch{this.status('保存失败；输入仍在当前页面，请先导出记录。');return false}
+ },
+ note(value){const q=this.question();this.records().records[q.id]={...this.entry(q.id),note:value};this.changed()},
+ rate(rating){
+  if(!this.ratings[rating]||dateKey()<this.start)return;
+  const id=this.question().id,entry=this.entry(id),date=dateKey(),previous=entry.events||[];
+  // Re-rating on the same date is a correction, not another spaced recall success.
+  const earlier=previous.filter(e=>e.date<date).at(-1),stage=rating==='solo'?Math.min(3,(earlier?.rating==='solo'?earlier.stage||0:0)+1):0;
+  const gap=rating==='solo'?[3,7,14][stage-1]:1,due=new Date(date+'T12:00:00');due.setDate(due.getDate()+gap);
+  const event={date,at:new Date().toISOString(),rating,stage,due:dateKey(due)};
+  this.records().records[id]={...entry,events:[...previous,event]};this.changed();this.flush();this.render();
+  $('mathPractice').querySelector('[data-math-rate="'+rating+'"]')?.focus?.();
+ },
+ select(lessonId,questionId){
+  this.flush();const l=this.bank.lessons.find(l=>l.id===lessonId);if(!l||!l.questions.some(q=>q.id===questionId))return;
+  this.viewLesson=lessonId;this.records().cursors[lessonId]=questionId;this.changed();this.flush();this.render();
+ },
+ advance(){
+  if(!$('mathReady')?.checked)return;
+  const state=this.records(),index=this.bank.lessons.findIndex(l=>l.id===state.lessonId);
+  if(this.lesson().id!==state.lessonId||index<0||index>=this.bank.lessons.length-1)return;
+  this.flush();const next=this.bank.lessons[index+1];
+  state.advances=state.advances||[];state.advances.push({from:state.lessonId,to:next.id,at:new Date().toISOString()});
+  state.lessonId=next.id;this.viewLesson=next.id;this.changed();this.flush();this.render();$('mathLessonTitle').focus?.();
+ },
+ render(){
+  const state=this.records(),lesson=this.lesson(),q=this.question(),index=lesson.questions.indexOf(q),currentIndex=this.bank.lessons.findIndex(l=>l.id===state.lessonId),entry=this.entry(q.id),last=this.last(q.id),due=this.due(),e=escapeHtml;
+  const steps=rows=>'<ol>'+rows.map(row=>'<li>'+e(row)+'</li>').join('')+'</ol>';
+  const count=lesson.questions.filter(item=>this.last(item.id)).length;
+  $('mathPractice').innerHTML=`
+   <div class="math-practice-head"><div><div class="eyebrow">数学二 · 9 月 19 日重新开始</div><h2 id="mathLessonTitle" tabindex="-1">${e(lesson.title)}</h2><p class="muted">${e(lesson.subtitle)}</p></div><span>${count} / 15 题有记录</span></div>
+   <p class="math-practice-intro">15 道是本节题储备。可以先做 3–5 道基础题，按精力停下；忙日回顾，不自动换节。</p>
+   ${currentIndex>0?'<div class="math-lesson-tabs" aria-label="学习过的小节">'+this.bank.lessons.slice(0,currentIndex+1).map(l=>`<button type="button" class="soft" data-math-lesson="${l.id}" aria-pressed="${l.id===lesson.id}">${e(l.title)}</button>`).join('')+'</div>':''}
+   <details class="math-reference"><summary>知识卡与例题 · 卡住时展开</summary><div class="math-cards">${lesson.cards.map(card=>`<div><h3>${e(card.title)}</h3><p>${e(card.text)}</p></div>`).join('')}</div>${lesson.examples.map((example,i)=>`<details class="math-example"><summary>例 ${i+1} · ${e(example.prompt)}</summary>${steps(example.steps)}<p><b>${e(example.answer)}</b></p></details>`).join('')}</details>
+   <div class="math-question-grid" aria-label="本节 15 道题">${lesson.questions.map((item,i)=>`<button type="button" data-math-question="${item.id}" aria-pressed="${item.id===q.id}" aria-label="第 ${i+1} 题，${item.level}，${this.last(item.id)?this.ratings[this.last(item.id).rating]:'未记录'}">${String(i+1).padStart(2,'0')}<small>${this.last(item.id)?'已记录':item.level}</small></button>`).join('')}</div>
+   <article class="math-question" aria-labelledby="mathQuestionTitle"><div class="eyebrow">${e(q.level)} · 第 ${index+1} / 15 题</div><h3 id="mathQuestionTitle">${e(q.prompt)}</h3>
+    <p class="muted">可在纸上或下方当日手写区作答，再自己核对。</p>
+    <details class="math-help"><summary>只看提示</summary><p>${e(q.hint)}</p></details>
+    <details class="math-help"><summary>查看答案与完整解析</summary><p><b>${e(q.answer)}</b></p>${steps(q.steps)}</details>
+    <label class="math-answer-label">本题思路 / 卡点（可留空）<textarea id="mathAnswer" rows="2" placeholder="例如：不确定两个输入能否对应同一个输出"></textarea></label>
+    <p class="muted">做过后按实际情况记录；查看解析不会自动算完成。</p><div class="math-ratings">${Object.entries(this.ratings).map(([key,label])=>`<button type="button" class="soft" data-math-rate="${key}" aria-pressed="${last?.rating===key}">${label}</button>`).join('')}</div>
+    <p class="math-record-state">${last?e(last.date+' · '+this.ratings[last.rating]+' · 建议 '+last.due+' 再回看'):'还没有做题记录。打开题目不计入学习。'}</p>
+    <div class="math-question-actions"><button class="soft" type="button" data-math-step="-1" ${index===0?'disabled':''}>上一题</button><button class="soft" type="button" data-math-step="1" ${index===14?'disabled':''}>下一题</button></div>
+   </article>
+   <details class="math-review"><summary>本轮复习 · ${due.length?'有 '+due.length+' 道可回看':'暂无到期题'}</summary><p>只从 9 月 19 日起实际记录的题建立。忙时选 1–3 道即可，未复习的题留在这里，不累加每日任务。</p><p class="muted">先试行：独立完成后隔 3 天复习，之后独立回忆成功再隔 7、14 天；需要帮助的题次日回看。可结合六天记录再调整。</p><div class="math-review-list">${due.map(item=>`<button type="button" class="soft" data-math-review="${item.id}" data-math-review-lesson="${item.lesson}">${e(this.bank.lessons.find(l=>l.id===item.lesson).title)} · 第 ${this.bank.lessons.find(l=>l.id===item.lesson).questions.findIndex(x=>x.id===item.id)+1} 题 · ${e(this.ratings[item.last.rating])}</button>`).join('')||'<p class="muted">有实际做题记录后才会安排复习。</p>'}</div></details>
+   <div class="math-advance">${lesson.id!==state.lessonId?'<p>正在回看已学小节。</p><button type="button" class="primary" id="mathReturnCurrent">回到当前小节</button>':currentIndex<this.bank.lessons.length-1?'<label><input type="checkbox" id="mathReady">我准备进入下一小节（不要求做满 15 道）</label><button type="button" class="primary" id="mathAdvance" disabled>进入下一小节</button>':'<p>这是首批题库的最后一节。后续小节待补充；当前题目可以继续练习、复习。</p>'}</div>
+   <div class="math-save"><span id="mathSaveState" role="status">${this.dirty?'有尚未保存的内容，请重试保存或导出':'记录保存在这台设备'}</span><div><button type="button" class="soft" id="mathSave">保存记录</button><button type="button" class="soft" id="mathExport">导出本轮数学记录</button></div></div>`;
+  const box=$('mathPractice');
+  $('mathAnswer').value=entry.note||'';
+  $('mathScratchPrompt').textContent='当前练习 · 第 '+(index+1)+' 题：'+q.prompt;
+  box.onclick=event=>{
+   const button=event.target.closest('button');if(!button||button.disabled)return;
+   const d=button.dataset;
+   if(d.mathQuestion)this.select(lesson.id,d.mathQuestion);
+   else if(d.mathLesson){const l=this.bank.lessons.find(l=>l.id===d.mathLesson);this.select(l.id,state.cursors[l.id]||l.questions[0].id)}
+   else if(d.mathStep)this.select(lesson.id,lesson.questions[index+Number(d.mathStep)].id);
+   else if(d.mathRate)this.rate(d.mathRate);
+   else if(d.mathReview)this.select(d.mathReviewLesson,d.mathReview);
+   else if(button.id==='mathAdvance')this.advance();
+   else if(button.id==='mathSave')this.flush();
+   else if(button.id==='mathExport')this.export();
+   else if(button.id==='mathReturnCurrent'){this.viewLesson=state.lessonId;this.render()}
+  };
+  $('mathAnswer').oninput=event=>this.note(event.target.value);
+  if($('mathReady'))$('mathReady').onchange=event=>{$('mathAdvance').disabled=!event.target.checked};
+ },
+ bundle(){return{kind:'math-practice-records',version:1,exportedAt:new Date().toISOString(),...this.records()}},
+ export(){this.flush();try{downloadSyncFile(new File([JSON.stringify(this.bundle(),null,2)],'数学新起点-20260919.json',{type:'application/json'}))}catch{this.status('导出失败，请重试；输入仍保留在当前页面。')}},
+ init(){window.addEventListener('pagehide',()=>this.flush());document.addEventListener('visibilitychange',()=>{if(document.hidden)this.flush()})}
+};
+MathPractice.init();
