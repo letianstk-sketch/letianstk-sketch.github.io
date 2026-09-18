@@ -68,7 +68,7 @@ function newDailyTasks(date){
 }
 function ensureDailyLedger(){
  // Immutable snapshots make missed work traceable even after timetable changes.
- const today=dateKey(),last=localStorage.getItem('tri-daily-ledger-through')||dateKey(new Date(new Date(CampusPlan.effective+'T00:00:00').getTime()-DAY_MS));
+ const today=dateKey()>=TrialHome.start?'2026-09-18':dateKey(),last=localStorage.getItem('tri-daily-ledger-through')||dateKey(new Date(new Date(CampusPlan.effective+'T00:00:00').getTime()-DAY_MS));
  if(last>=today)return;
  let date=new Date(last+'T00:00:00');date.setDate(date.getDate()+1);let changed=false,through=last;
  for(let count=0;dateKey(date)<=today&&count<31;count++,date.setDate(date.getDate()+1)){
@@ -139,6 +139,10 @@ function renderCampusDay(date=selectedPlanDate,plan=campusScheduleFor(date)){
  if(key<CampusPlan.effective){$('todayTasks').innerHTML='<p class="muted">原计划打卡 '+(checks[key]||[]).length+' 项；可进入对应日期的科目工作台查看原笔记。</p>';$('scheduledBacklog').innerHTML=''}
 }
 function renderDailyDashboard(){
+ const trial=TrialHome.active();
+ $('trialHome').hidden=!trial;$('legacyToday').hidden=trial;
+ document.body.classList.toggle('trial-home-open',trial);
+ if(trial)return TrialHome.render();
  ensureDailyLedger();const date=selectedPlanDate,key=dateKey(date),plan=campusScheduleFor(date),fresh=plan.fresh;
  $('dashboardDate').value=key;const done=fresh.filter(t=>dailyTaskMinutes(t)>=t.minutes).length,pct=fresh.length?Math.round(done/fresh.length*100):0;$('percent').textContent=pct+'%';$('ring').style.setProperty('--p',pct+'%');$('streak').textContent=calcStreak();
  $('dailyPlanSummary').innerHTML=`<span><b>${done} / ${fresh.length}</b> 今日环节完成</span><span><b>${plan.scheduled}</b> 分钟已安排</span><span><b>${plan.backlog.length}</b> 个环节待补</span>`;
@@ -258,3 +262,108 @@ function initWorkstation(){
  $('workstationMode').onchange=e=>{workstationMode=e.target.value;renderWorkstation(campusScheduleFor(selectedPlanDate))};
  $('workstationReturn').onclick=()=>{const focus=availableWorkstationFocus();if(focus)setPlanDate(focus.homeDate);navigate('today')};
 }
+
+;
+// trial-home.js
+/* First-stage home: event-driven, local records; opening a page is not study credit. */
+window.TrialHome={
+ start:'2026-09-19',end:'2026-09-24',key:'tri-trial-days-v1',days:null,timer:null,dirty:false,
+ fields:['sleep','wake','leaveBed','offline','answer','extra'],
+ questions:[
+  '今天开始第一段学习前，最让你拖延的是什么？后来是什么让你开始了？',
+  '数学最容易卡在读懂题目、想起方法、计算还是订正？指出一道具体题即可。',
+  '上午、下午都有课时，哪个空档你实际上有余力学习？哪个空档只想休息？',
+  '整天空闲时，学习到什么程度开始明显疲劳？休息后还能不能回来继续？',
+  '英语阅读最影响理解的是词义陌生、句子结构还是上下文？能否举一个当天的例子？',
+  '这六天，哪项安排最容易自然完成，哪项最需要修改？如果只能改一件事，你会选什么？'
+ ],
+ active(date=selectedPlanDate){return dateKey(date)>=this.start},
+ records(){if(!this.days){const saved=read(this.key,{});this.days=saved&&typeof saved==='object'&&!Array.isArray(saved)?saved:{}}return this.days},
+ index(key){return Math.round((new Date(key+'T12:00:00')-new Date(this.start+'T12:00:00'))/DAY_MS)},
+ question(key){return this.questions[this.index(key)]||'这一天有什么实际情况，值得在下一阶段安排中考虑？'},
+ dayContext(date){
+  const constraints=dayConstraints(date),events=personalEventsFor(date),busy=[...constraints.busy,...events];
+  const halves=campusFreeHalfDays(date).map(([start])=>start<720?'上午':start<1080?'下午':'晚上');
+  const load=!busy.length?'整天空闲':constraints.classes.length<=1&&busy.reduce((n,b)=>n+b.end-b.start,0)<160?'课程较少':halves.length?'有完整空课半天':'课程较密或分散';
+  return{load,halves,classes:constraints.classes.length,items:busy.map(b=>({title:b.label,start:StudyPlanner.label(b.classStart??b.start),end:StudyPlanner.label(b.classEnd??b.end)}))};
+ },
+ change(field,value){
+  const key=dateKey(selectedPlanDate);if(key>dateKey()||(!this.fields.includes(field)&&field!=='energy'))return;
+  const old=this.records()[key]||{},record={...old,[field]:String(value).slice(0,3000),updatedAt:new Date().toISOString()};
+  if(!record.question)record.question=this.question(key);
+  if(!record.context)record.context=this.dayContext(selectedPlanDate);
+  this.days[key]=record;this.dirty=true;
+  $('trialSaveState').textContent='正在保存…';
+  if(this.timer!==null)clearTimeout(this.timer);
+  this.timer=setTimeout(()=>this.flush(),500);
+  if(field==='energy')this.guidance();
+ },
+ flush(){
+  if(this.timer!==null){clearTimeout(this.timer);this.timer=null}
+  if(!this.dirty)return true;
+  try{localStorage.setItem(this.key,JSON.stringify(this.days));this.dirty=false;if($('trialSaveState'))$('trialSaveState').textContent='已保存到这台平板';this.renderDates();return true}
+  catch{if($('trialSaveState'))$('trialSaveState').textContent='保存失败，输入仍保留在当前页面；请先导出记录。';if($('trialNoteDetails'))$('trialNoteDetails').open=true;return false}
+ },
+ remember(view){
+  if(!['english','math','politics'].includes(view))return;
+  try{localStorage.setItem('tri-trial-last-view-v1',JSON.stringify({view,date:dateKey(selectedPlanDate)}))}catch{}
+ },
+ continuation(){const saved=read('tri-trial-last-view-v1',null);return saved&&['english','math','politics'].includes(saved.view)&&/^\d{4}-\d{2}-\d{2}$/.test(saved.date)?saved:null},
+ continue(){const saved=this.continuation();if(!saved)return navigate('english');setPlanDate(saved.date);navigate(saved.view)},
+ renderDates(){
+  const current=dateKey(selectedPlanDate),today=dateKey();
+  $('trialDates').innerHTML=this.questions.map((_,i)=>{const date=new Date(this.start+'T12:00:00');date.setDate(date.getDate()+i);const key=dateKey(date),record=this.records()[key],filled=record&&(record.energy||this.fields.some(f=>record[f]));return '<button type="button" class="trial-day" data-trial-date="'+key+'" aria-pressed="'+(key===current)+'"><b>9 / '+(19+i)+'</b><span>'+(key>today?'可预览问题':filled?'有记录':'未填写')+'</span></button>'}).join('');
+  $('trialDates').querySelectorAll('[data-trial-date]').forEach(button=>button.onclick=()=>setPlanDate(button.dataset.trialDate));
+ },
+ guidance(){
+  const key=dateKey(selectedPlanDate),record=this.records()[key]||{},energy=['normal','low','rest'].includes(record.energy)?record.energy:'',context=this.dayContext(selectedPlanDate),saved=this.continuation();
+  const advice=energy==='rest'?'今天可以休息。未完成的内容留在原处，下次再接着做。':energy==='low'?'先降低负担：可以只回顾上一小节或几个旧词，也可以休息。':context.load==='整天空闲'?'先安排运动、吃饭与休息，再选一段完整时间学习；完成一段后再决定是否继续。':context.halves.length?'优先使用'+context.halves.join('、')+'的完整空档；课间短空隙可以留给休息。':'今天课程较密或分散。保留通勤与休息，适合时再回顾旧内容。';
+  $('trialDayKind').textContent=context.load+' · '+context.classes+' 节课';
+  $('trialGuidance').textContent=advice;
+  $('trialResume').textContent=saved?'继续上次的'+SUBJECT_LABELS[saved.view]:'进入英语阅读';
+  $('trialResume').className=energy==='rest'?'soft':'primary';
+  $('trialEnergy').querySelectorAll('[data-energy]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.energy===energy)));
+  $('trialEnergyState').textContent=energy?({normal:'按正常节奏',low:'减轻当天负担',rest:'今天以恢复为主'})[energy]:'可选；不选择也能直接学习';
+  $('trialClasses').innerHTML=context.items.length?context.items.map(item=>'<li><time>'+escapeHtml(item.start+'–'+item.end)+'</time><span>'+escapeHtml(item.title)+'</span></li>').join(''):'<li>课表中没有课程或额外事务安排。</li>';
+ },
+ render(){
+  const key=dateKey(selectedPlanDate),record=this.records()[key]||{},future=key>dateKey(),index=this.index(key);
+  $('trialDate').value=key;$('trialPeriod').textContent=index>=0&&index<6?'第一阶段 · 9 月 19–24 日':'阶段复盘 · 按实际情况记录';
+  $('trialDateLabel').textContent=selectedPlanDate.toLocaleDateString('zh-CN',{month:'long',day:'numeric',weekday:'long'});
+  $('trialQuestion').textContent=record.question||this.question(key);
+  $('trialQuestionPreview').textContent=record.question||this.question(key);
+  const previous=read('tri-workstation-notes',{})[key]?.text||'';
+  $('trialPreviousNote').hidden=!previous;$('trialPreviousText').textContent=previous;
+  for(const field of this.fields){const input=$('trial-'+field);input.value=record[field]||'';input.disabled=future}
+  $('trialEnergy').querySelectorAll('button').forEach(button=>button.disabled=future);
+  $('trialSave').disabled=future;
+  $('trialSaveState').textContent=future?'可提前查看问题，到当天再记录。':this.dirty?'有尚未保存的输入':record.updatedAt?'已保存到这台平板':'可以一句话、留空或以后补记';
+  const concept=DAILY_DATA.politics[Math.max(0,index)%DAILY_DATA.politics.length];
+  $('trialPoliticalTopic').textContent=concept.title;
+  $('trialPoliticalSentence').textContent=concept.text.split('。')[0]+'。';
+  this.renderDates();this.guidance();
+ },
+ bundle(){
+  const records=Object.entries(this.records()).filter(([date])=>date>=this.start&&date<=this.end).sort(([a],[b])=>a.localeCompare(b)).map(([date,record])=>({date,...record}));
+  return{kind:'study-trial-notes',version:1,period:{start:this.start,end:this.end},exportedAt:new Date().toISOString(),records,missingMeans:'未填写，不能据此判断是否学习'};
+ },
+ async export(){
+  this.flush();
+  try{
+   const file=new File([JSON.stringify(this.bundle(),null,2)],'六天试行记录-20260919-24.json',{type:'application/json'});
+   if(navigator.share&&navigator.canShare?.({files:[file]})){try{await navigator.share({title:'六天试行记录',files:[file]})}catch(error){if(error.name!=='AbortError')downloadSyncFile(file)}}else downloadSyncFile(file);
+  }catch{toast('导出失败，记录仍留在当前页面，请重试')}
+ },
+ init(){
+  $('trialDate').onchange=event=>{if(event.target.value)setPlanDate(event.target.value)};
+  $('trialToday').onclick=()=>setPlanDate(new Date());
+  $('trialResume').onclick=()=>this.continue();
+  $('trialEnergy').querySelectorAll('[data-energy]').forEach(button=>button.onclick=()=>this.change('energy',button.getAttribute('aria-pressed')==='true'?'':button.dataset.energy));
+  for(const field of this.fields)$('trial-'+field).oninput=event=>this.change(field,event.target.value);
+  $('trialSave').onclick=()=>{if(this.flush()&&!this.records()[dateKey(selectedPlanDate)])$('trialSaveState').textContent='尚未填写，可以留空'};
+  $('trialExport').onclick=()=>this.export();
+  document.querySelectorAll('[data-trial-go]').forEach(button=>button.onclick=()=>navigate(button.dataset.trialGo));
+  window.addEventListener('pagehide',()=>this.flush());
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)this.flush()});
+ }
+};
