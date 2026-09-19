@@ -374,7 +374,10 @@ window.TrialHome={
 window.MathPractice = {
  key:'tri-math-practice-v1',start:'2026-09-19',state:null,bank:null,pending:null,timer:null,dirty:false,viewLesson:null,
  ratings:{solo:'独立完成',hint:'提示后完成',solution:'看解析才理解',stuck:'仍然卡住'},
- title(){const id=this.records().lessonId;return this.bank?.lessons.find(l=>l.id===id)?.title||({'functions-domain':'映射与函数：概念、定义域','functions-composition':'复合函数与定义域'})[id]||'映射与函数：概念、定义域'},
+ /* chapter-index */
+ catalog:[{"id":"functions-domain","title":"映射与函数：概念、定义域"},{"id":"functions-composition","title":"复合函数与定义域"},{"id":"functions-properties","title":"函数的性质：奇偶性与单调性"},{"id":"functions-bounded-periodic","title":"函数的性质：有界性与周期性"},{"id":"functions-inverse","title":"反函数：定义域、值域与求法"},{"id":"functions-elementary","title":"基本初等函数、分段函数与建模"},{"id":"limits-concept","title":"极限概念：趋近、左右极限与数列"},{"id":"limits-algebra","title":"极限运算：约分、有理化与无穷远"},{"id":"limits-tools","title":"重要极限与极限存在准则"},{"id":"limits-infinitesimals","title":"无穷小的比较与等价代换"},{"id":"limits-continuity","title":"连续性、间断点与闭区间性质"}],
+ /* end-chapter-index */
+ title(){return this.catalog.find(l=>l.id===this.records().lessonId)?.title||this.catalog[0].title},
  records(){
   if(!this.state){
    const saved=read(this.key,null);
@@ -385,13 +388,14 @@ window.MathPractice = {
  async load(){
   if(this.bank)return this.bank;
   if(!this.pending)this.pending=(async()=>{
-   const response=await fetch('math-foundations-v1.json?v=20260919c',{cache:'force-cache',signal:AbortSignal.timeout(20000)});
+   const response=await fetch('math-foundations-v1.json?v=20260919d',{cache:'force-cache',signal:AbortSignal.timeout(20000)});
    if(!response.ok)throw Error('download');
-   const data=await response.json(),ids=new Set();
+   const data=await response.json(),ids=new Set(),lessonIds=new Set();
    if(data.schema!==1||!Array.isArray(data.lessons)||!data.lessons.length)throw Error('format');
    for(const lesson of data.lessons){
-    if(!lesson.id||!lesson.title||!Array.isArray(lesson.cards)||!Array.isArray(lesson.examples)||lesson.questions?.length!==15)throw Error('lesson');
-    for(const q of lesson.questions){if(ids.has(q.id)||!q.prompt||!q.answer||!q.hint||!Array.isArray(q.steps))throw Error('question');ids.add(q.id)}
+    if(!lesson.id||lessonIds.has(lesson.id)||!lesson.title||!Array.isArray(lesson.cards)||!Array.isArray(lesson.examples)||lesson.questions?.length!==15)throw Error('lesson');
+    lessonIds.add(lesson.id);
+    for(const q of lesson.questions){if(!q.id||ids.has(q.id)||!q.prompt||!q.answer||!q.hint||!Array.isArray(q.steps)||q.steps.length<2)throw Error('question');ids.add(q.id)}
    }
    this.bank=data;return data;
   })().finally(()=>{this.pending=null});
@@ -399,7 +403,7 @@ window.MathPractice = {
  },
  async open(){
   const box=$('mathPractice');
-  if(!this.bank)box.innerHTML='<p role="status">正在加载第一批数学习题…</p>';
+  if(!this.bank)box.innerHTML='<p role="status">正在加载第一章：函数、极限与连续…</p>';
   try{await this.load();if($('math').classList.contains('active'))this.render()}
   catch{if($('math').classList.contains('active')){box.innerHTML='<p role="status">习题暂未加载成功，你的记录仍保留。</p><button type="button" class="soft" id="mathRetry">重新加载习题</button>';$('mathRetry').onclick=()=>this.open()}}
  },
@@ -449,7 +453,8 @@ window.MathPractice = {
   $('mathPractice').innerHTML=`
    <div class="math-practice-head"><div><div class="eyebrow">数学二 · 9 月 19 日重新开始</div><h2 id="mathLessonTitle" tabindex="-1">${e(lesson.title)}</h2><p class="muted">${e(lesson.subtitle)}</p></div><span>${count} / 15 题有记录</span></div>
    <p class="math-practice-intro">15 道是本节题储备。可以先做 3–5 道基础题，按精力停下；忙日回顾，不自动换节。</p>
-   ${currentIndex>0?'<div class="math-lesson-tabs" aria-label="学习过的小节">'+this.bank.lessons.slice(0,currentIndex+1).map(l=>`<button type="button" class="soft" data-math-lesson="${l.id}" aria-pressed="${l.id===lesson.id}">${e(l.title)}</button>`).join('')+'</div>':''}
+   <details class="math-directory"><summary>第一章目录 · ${this.bank.lessons.length} 小节 · 当前进度 ${currentIndex+1}/${this.bank.lessons.length}</summary><p class="muted">每节 15 道储备题。可以预览或回看；进入下一节仍由你勾选决定，打开内容不会算作完成。</p><div class="math-lesson-tabs" aria-label="第一章小节目录">${this.bank.lessons.map((l,i)=>`<button type="button" class="soft" data-math-lesson="${l.id}" aria-pressed="${l.id===lesson.id}"><span>${String(i+1).padStart(2,'0')} · ${e(l.title)}</span><small>${i===currentIndex?'当前进度':i<currentIndex?'前序小节':'后续小节'}</small></button>`).join('')}</div></details>
+   ${lesson.id!==state.lessonId?`<p class="math-view-notice" role="status">正在${this.bank.lessons.indexOf(lesson)>currentIndex?'预览后续':'回看前序'}小节；当前进度仍是「${e(this.title())}」。</p>`:''}
    <details class="math-reference"><summary>知识卡与例题 · 卡住时展开</summary><div class="math-cards">${lesson.cards.map(card=>`<div><h3>${e(card.title)}</h3><p>${e(card.text)}</p></div>`).join('')}</div>${lesson.examples.map((example,i)=>`<details class="math-example"><summary>例 ${i+1} · ${e(example.prompt)}</summary>${steps(example.steps)}<p><b>${e(example.answer)}</b></p></details>`).join('')}</details>
    <div class="math-question-grid" aria-label="本节 15 道题">${lesson.questions.map((item,i)=>`<button type="button" data-math-question="${item.id}" aria-pressed="${item.id===q.id}" aria-label="第 ${i+1} 题，${item.level}，${this.last(item.id)?this.ratings[this.last(item.id).rating]:'未记录'}">${String(i+1).padStart(2,'0')}<small>${this.last(item.id)?'已记录':item.level}</small></button>`).join('')}</div>
    <article class="math-question" aria-labelledby="mathQuestionTitle"><div class="eyebrow">${e(q.level)} · 第 ${index+1} / 15 题</div><h3 id="mathQuestionTitle">${e(q.prompt)}</h3>
@@ -462,7 +467,7 @@ window.MathPractice = {
     <div class="math-question-actions"><button class="soft" type="button" data-math-step="-1" ${index===0?'disabled':''}>上一题</button><button class="soft" type="button" data-math-step="1" ${index===14?'disabled':''}>下一题</button></div>
    </article>
    <details class="math-review"><summary>本轮复习 · ${due.length?'有 '+due.length+' 道可回看':'暂无到期题'}</summary><p>只从 9 月 19 日起实际记录的题建立。忙时选 1–3 道即可，未复习的题留在这里，不累加每日任务。</p><p class="muted">先试行：独立完成后隔 3 天复习，之后独立回忆成功再隔 7、14 天；需要帮助的题次日回看。可结合六天记录再调整。</p><div class="math-review-list">${due.map(item=>`<button type="button" class="soft" data-math-review="${item.id}" data-math-review-lesson="${item.lesson}">${e(this.bank.lessons.find(l=>l.id===item.lesson).title)} · 第 ${this.bank.lessons.find(l=>l.id===item.lesson).questions.findIndex(x=>x.id===item.id)+1} 题 · ${e(this.ratings[item.last.rating])}</button>`).join('')||'<p class="muted">有实际做题记录后才会安排复习。</p>'}</div></details>
-   <div class="math-advance">${lesson.id!==state.lessonId?'<p>正在回看已学小节。</p><button type="button" class="primary" id="mathReturnCurrent">回到当前小节</button>':currentIndex<this.bank.lessons.length-1?'<label><input type="checkbox" id="mathReady">我准备进入下一小节（不要求做满 15 道）</label><button type="button" class="primary" id="mathAdvance" disabled>进入下一小节</button>':'<p>这是首批题库的最后一节。后续小节待补充；当前题目可以继续练习、复习。</p>'}</div>
+   <div class="math-advance">${lesson.id!==state.lessonId?'<p>预览与回看不改变学习进度。</p><button type="button" class="primary" id="mathReturnCurrent">回到当前小节</button>':currentIndex<this.bank.lessons.length-1?'<label><input type="checkbox" id="mathReady">我准备进入下一小节（不要求做满 15 道）</label><button type="button" class="primary" id="mathAdvance" disabled>进入下一小节</button>':'<p>已到第一章最后一小节。基础题能够独立起步即可，薄弱题留在复习列表；后续章节将在你核查节奏后继续补充。</p>'}</div>
    <div class="math-save"><span id="mathSaveState" role="status">${this.dirty?'有尚未保存的内容，请重试保存或导出':'记录保存在这台设备'}</span><div><button type="button" class="soft" id="mathSave">保存记录</button><button type="button" class="soft" id="mathExport">导出本轮数学记录</button></div></div>`;
   const box=$('mathPractice');
   $('mathAnswer').value=entry.note||'';
