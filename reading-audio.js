@@ -11,7 +11,7 @@ window.ReadingAudio = (() => {
   const rates = [.75, .9, 1, 1.1, 1.25];
   let rate = rates.includes(+preferences.rate) ? +preferences.rate : .9;
 
-  function status(text) { $('readingAudioStatus').textContent = text; }
+  function status(text) { $('readingAudioStatus').textContent = text; if(source === 'word' && window.ArticleWords) ArticleWords.status(text); }
   function savePreferences() {
     try { localStorage.setItem(key, JSON.stringify({rate, voice: selectedVoice?.voiceURI || ''})); } catch {}
   }
@@ -120,7 +120,7 @@ window.ReadingAudio = (() => {
   }
   function current(token) {
     return token === serial && !document.hidden && document.getElementById('english').classList.contains('active')
-      && !WordMemory.wordsOnly && readingForView().articleIndex === articleId;
+      && (!WordMemory.wordsOnly || source === 'word') && readingForView().articleIndex === articleId;
   }
   function speakCurrent(token) {
     if (!current(token) || mode === 'paused') return;
@@ -153,10 +153,10 @@ window.ReadingAudio = (() => {
   async function play(kind = 'article', selection = '') {
     stop(); sync();
     const article = readingForView();
-    if (!article.loaded || !article.paragraphs.length) return fail('文章尚未加载，请稍后再播放。');
+    if (kind !== 'word' && (!article.loaded || !article.paragraphs.length)) return fail('文章尚未加载，请稍后再播放。');
     let text = '';
     if (kind === 'test') text = 'This is an English reading test. You can listen to one sentence at a time.';
-    else if (kind === 'selection') text = selection;
+    else if (kind === 'selection' || kind === 'word') text = selection;
     else if (kind === 'paragraph') text = article.paragraphs[+$('readingAudioParagraph').value] || '';
     else text = article.paragraphs.join(' ');
     queue = split(text); position = 0; source = kind;
