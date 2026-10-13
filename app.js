@@ -281,7 +281,7 @@ function loadReadingAudio(){
  if(window.ReadingAudio)return Promise.resolve(window.ReadingAudio);
  if(!readingAudioLoad){
   const script=file=>new Promise((resolve,reject)=>{const tag=document.createElement('script');tag.src=file;tag.onload=resolve;tag.onerror=()=>{tag.remove();reject(new Error('audio-load-failed'))};document.head.append(tag)});
-  readingAudioLoad=(window.EasySpeech?Promise.resolve():script('vendor/easy-speech-2.4.0.js?v=2.4.0')).then(()=>script('reading-audio.js?v=20261013c')).then(()=>window.ReadingAudio).catch(error=>{readingAudioLoad=null;throw error});
+  readingAudioLoad=(window.EasySpeech?Promise.resolve():script('vendor/easy-speech-2.4.0.js?v=2.4.0')).then(()=>script('reading-audio.js?v=20261013d')).then(()=>window.ReadingAudio).catch(error=>{readingAudioLoad=null;throw error});
  }
  return readingAudioLoad;
 }
