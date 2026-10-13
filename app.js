@@ -282,7 +282,7 @@ function loadReadingAudio(){
  if(window.ReadingAudio)return Promise.resolve(window.ReadingAudio);
  if(!readingAudioLoad){
   const script=file=>new Promise((resolve,reject)=>{const tag=document.createElement('script');tag.src=file;tag.onload=resolve;tag.onerror=()=>{tag.remove();reject(new Error('audio-load-failed'))};document.head.append(tag)});
-  readingAudioLoad=(window.EasySpeech?Promise.resolve():script('vendor/easy-speech-2.4.0.js?v=2.4.0')).then(()=>script('reading-audio.js?v=20261013e')).then(()=>window.ReadingAudio).catch(error=>{readingAudioLoad=null;throw error});
+  readingAudioLoad=(window.EasySpeech?Promise.resolve():script('vendor/easy-speech-2.4.0.js?v=2.4.0')).then(()=>script('reading-audio.js?v=20261013f')).then(()=>window.ReadingAudio).catch(error=>{readingAudioLoad=null;throw error});
  }
  return readingAudioLoad;
 }
@@ -291,7 +291,7 @@ function requestReadingAudio(kind='article',selection=''){
  $('readingAudioStatus').textContent='正在载入朗读组件…';
  return loadReadingAudio().then(audio=>{if(token!==englishAudioRequest||!$('english').classList.contains('active')||(WordMemory.wordsOnly&&kind!=='word')||readingForView().articleIndex!==article)return;return kind==='check'?audio.check():audio.play(kind,selection)}).catch(()=>{if(token===englishAudioRequest)$('readingAudioStatus').textContent='朗读组件暂未载入，请检查网络后再次点击。'});
 }
-function stopEnglishSpeech(){englishAudioRequest++;window.ReadingAudio?.stop();if('speechSynthesis'in window)window.speechSynthesis.cancel();englishSpeechActive=false;$('speakEnglishSelection')?.classList.remove('is-active');$('speakEnglishSelection')?.setAttribute('aria-pressed','false');if($('speechDockState'))$('speechDockState').textContent='文章朗读'}
+function stopEnglishSpeech(){window.ReadingSelection?.hide();englishAudioRequest++;window.ReadingAudio?.stop();if('speechSynthesis'in window)window.speechSynthesis.cancel();englishSpeechActive=false;$('speakEnglishSelection')?.classList.remove('is-active');$('speakEnglishSelection')?.setAttribute('aria-pressed','false');if($('speechDockState'))$('speechDockState').textContent='文章朗读'}
 function speakEnglishSelection(){
  const selection=captureEnglishSelection()||lastEnglishSelection;
  $('readingAudioPanel').scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
@@ -579,7 +579,7 @@ fillStudyTiming();initCampusControls();initWorkstation();
 // 只提供同一套普通网页界面；清理旧安装版注册，避免手机继续读取过期缓存。
 if('serviceWorker'in navigator&&location.protocol!=='file:')navigator.serviceWorker.getRegistrations().then(items=>items.forEach(item=>item.unregister())).catch(()=>{});
 if(location.hash.startsWith('#course-setup='))history.replaceState({view:'today'},'',location.pathname+location.search+'#today');
-$('logDate').value=dateKey();TrialHome.init();WordMemory.init();ReadingDesk.init();ArticleWords.init();DailyStudy.init();StudyCompanion.init();initStudyTimers();renderHeader();syncPlanDates();const initialView=(VIEW_META[location.hash.slice(1)]?location.hash.slice(1):'today');commitNavigation(initialView);history.replaceState({view:initialView},'',location.href);
+$('logDate').value=dateKey();TrialHome.init();WordMemory.init();ReadingDesk.init();ArticleWords.init();initReadingSelectionTools();DailyStudy.init();MathPace.init();StudyCompanion.init();initStudyTimers();renderHeader();syncPlanDates();const initialView=(VIEW_META[location.hash.slice(1)]?location.hash.slice(1):'today');commitNavigation(initialView);history.replaceState({view:initialView},'',location.href);
 
 // Code update checks never reload automatically or edit saved handwriting.
 let siteVersionTimer=null,siteVersionChecking=false,siteVersionLastCheck=0;
